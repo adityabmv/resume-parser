@@ -223,11 +223,8 @@ if st.button("Analyze Match"):
                 st.session_state.job_json = job_data.dict()
         
         if st.session_state.resume_json and st.session_state.job_json:
-            # Display JSONs
-            st.subheader("Resume JSON")
-            st.json(st.session_state.resume_json)
-            st.subheader("Job Description JSON")
-            st.json(st.session_state.job_json)
+            # JSONs are processed but not displayed
+            pass
             
             # Analyze match
             with st.spinner("Analyzing match..."):
