@@ -4,23 +4,52 @@ import pandas as pd
 from llm_adapters.ollama_adapter import OllamaAdapter
 from utils import load_pdfs_from_attachments, confirm_fields
 
+CONFIG_PATH = os.path.expanduser("~/.cv_config.json")
 
-def get_valid_path(prompt_msg, is_file=True):
+
+def get_or_ask_path(key: str, prompt_msg: str, is_file: bool = True) -> str:
+    config = load_config()
+
+    # Use stored path if exists and valid
+    if key in config and (
+        (is_file and os.path.isfile(config[key])) or (not is_file and os.path.isdir(config[key]))
+    ):
+        print(f"🔁 Using saved path for {key}: {config[key]}")
+        return config[key]
+
+    # Otherwise, prompt and save
     while True:
         path = input(f"{prompt_msg}: ").strip()
         if (is_file and os.path.isfile(path)) or (not is_file and os.path.isdir(path)):
+            config[key] = path
+            save_config(config)
             return path
         else:
             print(f"❌ Invalid {'file' if is_file else 'directory'} path. Please try again.")
 
 
+def load_config() -> dict:
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_config(config: dict):
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(config, f, indent=2)
+
+
 def main():
     print("📂 Welcome to the CV Analyzer CLI Tool")
 
-    # Step 1: Get paths from user
-    resume_dir = get_valid_path("Enter path to the folder containing resumes (PDFs)", is_file=False)
-    candidate_csv_path = get_valid_path("Enter path to the Candidates CSV file", is_file=True)
-    attachment_csv_path = get_valid_path("Enter path to the Attachments CSV file", is_file=True)
+    # Step 1: Get paths from config or prompt
+    resume_dir = get_or_ask_path("resume_dir", "Enter path to the folder containing resumes (PDFs)", is_file=False)
+    candidate_csv_path = get_or_ask_path("candidate_csv", "Enter path to the Candidates CSV file", is_file=True)
+    attachment_csv_path = get_or_ask_path("attachment_csv", "Enter path to the Attachments CSV file", is_file=True)
 
     # Step 2: Load data
     print("\n🔄 Loading CSVs...")
