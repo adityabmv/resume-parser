@@ -5,7 +5,18 @@ from llm_adapters.ollama_adapter import OllamaAdapter
 from utils import load_pdfs_from_attachments, confirm_fields
 
 CONFIG_PATH = os.path.expanduser("~/.cv_config.json")
-PARSED_RESUMES_PATH = os.path.join("output", "parsed_resumes.json")  # 🔄 New
+
+def get_rating_from_score(score: int) -> str:
+    if score is None:
+        return "Unknown"
+    if score >= 80:
+        return "Strong Match"
+    elif score >= 60:
+        return "Moderate Match"
+    elif score >= 40:
+        return "Weak Match"
+    else:
+        return "Not Recommended"
 
 
 def get_or_ask_path(key: str, prompt_msg: str, is_file: bool = True) -> str:
@@ -44,19 +55,6 @@ def save_config(config: dict):
         json.dump(config, f, indent=2)
 
 
-def load_cached_resumes():
-    if os.path.exists(PARSED_RESUMES_PATH):
-        with open(PARSED_RESUMES_PATH, "r") as f:
-            return json.load(f)
-    return None
-
-
-def save_parsed_resumes(resume_data):
-    os.makedirs("output", exist_ok=True)
-    with open(PARSED_RESUMES_PATH, "w") as f:
-        json.dump(resume_data, f, indent=2)
-
-
 def main():
     print("📂 Welcome to the CV Analyzer CLI Tool")
 
@@ -77,24 +75,14 @@ def main():
     # Step 4: Set up LLM backend (Ollama)
     llm_backend = OllamaAdapter(model_name="gemma3:1b")
 
-    # Step 5: Handle resume parsing with cache support
-    resumes_data = None
-    if os.path.exists(PARSED_RESUMES_PATH):
-        reuse = input("\n🔄 Cached parsed resumes found. Do you want to reparse all PDFs? (y/n): ").strip().lower()
-        if reuse == 'n':
-            print("✅ Using cached parsed resume data.")
-            resumes_data = load_cached_resumes()
-
-    if not resumes_data:
-        print("\n📄 Parsing resumes with LLM...")
-        resumes_data = load_pdfs_from_attachments(
-            candidates_df[candidate_fields],
-            attachments_df[attachment_fields],
-            resume_dir=resume_dir,
-            llm=llm_backend
-        )
-        save_parsed_resumes(resumes_data)
-        print("💾 Parsed resumes cached to reuse in future runs.")
+    # Step 5: Process resumes
+    print("\n📄 Processing resumes and parsing...")
+    resumes_data = load_pdfs_from_attachments(
+        candidates_df[candidate_fields],
+        attachments_df[attachment_fields],
+        resume_dir=resume_dir,
+        llm=llm_backend
+    )
 
     # Step 6: Analyze resumes against a job description
     job_description = input("\n📝 Enter job description for evaluation: ").strip()
@@ -110,12 +98,40 @@ def main():
         print(f"\n📌 Analysis for {entry['resume_file']}:")
         print(json.dumps(result, indent=2))
 
-    # Step 7: Save results
+    # Step 7: Create candidate-focused summary
+    output_summary = []
+
+    for entry in resumes_data:
+        candidate = entry['candidate']
+        analysis = entry['analysis']
+        
+        # Use keys safely in case of variation
+        application_id = candidate.get("Application Id") or candidate.get("Application ID")
+        full_name = candidate.get("Full Name") or f"{candidate.get('First Name', '')} {candidate.get('Last Name', '')}".strip()
+
+        summary = {
+            "application_id": application_id,
+            "full_name": full_name,
+            "analysis_summary": {
+                "score": analysis.get("score") or analysis.get("suitability_score"),
+                "rating": get_rating_from_score(analysis.get("score") or analysis.get("suitability_score")),
+                "skill_match_pct": analysis.get("skill_match_pct") or analysis.get("skills_match", {}).get("percentage"),
+                "matched_skills": analysis.get("matched_skills") or analysis.get("skills_match", {}).get("matched"),
+                "missing_skills": analysis.get("missing_skills") or analysis.get("skills_match", {}).get("missing"),
+                "education_fit": analysis.get("education_fit"),
+                "experience_fit": analysis.get("experience_fit"),
+                "summary": analysis.get("summary")
+            }
+        }
+
+        output_summary.append(summary)
+
+    # Save to final JSON
     os.makedirs("output", exist_ok=True)
     with open("output/analysis_results.json", "w") as f:
-        json.dump(resumes_data, f, indent=2)
+        json.dump(output_summary, f, indent=2)
 
-    print("\n✅ All resumes analyzed. Results saved to `output/analysis_results.json`")
+    print("\n✅ Final summarized results saved to `output/analysis_results.json`")
 
 
 if __name__ == "__main__":
