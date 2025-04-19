@@ -2,9 +2,10 @@ import os
 import json
 import pandas as pd
 from llm_adapters.ollama_adapter import OllamaAdapter
+import ollama
 from utils import load_pdfs_from_attachments, confirm_fields
 
-CONFIG_PATH = os.path.expanduser("~/.cv_config.json")
+CONFIG_PATH = os.path.expanduser(".cv_config.json")
 PARSED_RESUMES_PATH = os.path.join("output", "parsed_resumes.json")
 
 def get_rating_from_score(score: int) -> str:
@@ -85,7 +86,31 @@ def main():
     attachment_fields = confirm_fields(attachments_df, "attachment")
 
     # Step 4: Set up LLM backend (Ollama)
-    llm_backend = OllamaAdapter(model_name="gemma3:1b")
+    print("\n🔄 Setting up LLM backend..."
+          "\nAvailable models:")
+    # List available models
+    k = 1
+    for i in ollama.list().models:
+        print(k,". ", i.model, end=" ", sep="")
+        # size=17396936941 print in human readable format
+        print(i.size.human_readable(True))
+        k+=1
+    
+    # Prompt for model selection using index/number
+    model_index = input("Select a model by number (or press Enter for default): ").strip()
+    if model_index.isdigit():
+        model_index = int(model_index)
+        if 0 < model_index <= len(ollama.list().models):
+            model_name = ollama.list().models[model_index - 1].model
+            print(f"🔄 Using selected model: {model_name}")
+        else:
+            print("❌ Invalid selection. Using default model.")
+            model_name = "deepseek-r1:32b"
+    else:
+        model_name = "deepseek-r1:32b"
+        print("🔄 Using default model: deepseek-r1:32b")
+    
+    llm_backend = OllamaAdapter(model_name="deepseek-r1:32b")
 
     # Step 5: Process resumes
     resumes_data = None
@@ -127,6 +152,9 @@ def main():
     job_description = input("\n📝 Enter job description for evaluation: ").strip()
 
     print("\n📊 Generating analysis...")
+    
+    # Sample function to call your LLM backend and analyze resume
+    # Assuming `llm_backend.analyze_resume_against_job` returns the structured JSON schema as required
     for entry in resumes_to_analyze:
         result = llm_backend.analyze_resume_against_job(
             resume_data=entry['parsed_resume'],
@@ -144,22 +172,15 @@ def main():
         candidate = entry['candidate']
         analysis = entry['analysis']
 
+        # Extract candidate info
         application_id = candidate.get("Application Id") or candidate.get("Application ID")
         full_name = candidate.get("Full Name") or f"{candidate.get('First Name', '')} {candidate.get('Last Name', '')}".strip()
 
+        # Summary construction based on structured analysis
         summary = {
             "application_id": application_id,
             "full_name": full_name,
-            "analysis_summary": {
-                "score": analysis.get("score") or analysis.get("suitability_score"),
-                "rating": get_rating_from_score(analysis.get("score") or analysis.get("suitability_score")),
-                "skill_match_pct": analysis.get("skill_match_pct") or analysis.get("skills_match", {}).get("percentage"),
-                "matched_skills": analysis.get("matched_skills") or analysis.get("skills_match", {}).get("matched"),
-                "missing_skills": analysis.get("missing_skills") or analysis.get("skills_match", {}).get("missing"),
-                "education_fit": analysis.get("education_fit"),
-                "experience_fit": analysis.get("experience_fit"),
-                "summary": analysis.get("summary")
-            }
+            "analysis": analysis
         }
 
         output_summary.append(summary)
@@ -170,5 +191,5 @@ def main():
         json.dump(output_summary, f, indent=2)
 
     print("\n✅ Final summarized results saved to `output/analysis_results.json`")
-if __name__ == "__main__":
-    main()
+
+main()
